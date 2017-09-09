@@ -22,6 +22,9 @@ import java.util.*;
 public class MainActivity extends AppCompatActivity {
 
     public static final String CURRENT = "current";
+    private MediaPlayer mediaPlayer;
+    private Thread thread;
+    private boolean destroy;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -82,12 +85,12 @@ public class MainActivity extends AppCompatActivity {
                 podcast.getName().replaceAll(".mp3$", ""),
                 positions.get(podcast) / 1000 / 60));
 
-        final MediaPlayer mediaPlayer = MediaPlayer.create(this, Uri.fromFile(podcasts.get(0)));
+        mediaPlayer = MediaPlayer.create(this, Uri.fromFile(podcasts.get(0)));
 
-        Thread thread = new Thread() {
+        thread = new Thread() {
             @Override
             public void run() {
-                while (true) {
+                while (!destroy) {
                     handler.post(new Runnable() {
                         @Override
                         public void run() {
@@ -190,6 +193,19 @@ public class MainActivity extends AppCompatActivity {
                 mediaPlayer.seekTo(Math.min(mediaPlayer.getDuration(), mediaPlayer.getCurrentPosition() + 30_000));
             }
         });
+    }
+
+    @Override
+    protected void onDestroy() {
+        destroy = true;
+        try {
+            thread.join();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        mediaPlayer.release();
+        mediaPlayer = null;
+        super.onDestroy();
     }
 
     private void storePosition(File podcast, Map<File, Integer> positions, SharedPreferences persist, int currentPosition) {
