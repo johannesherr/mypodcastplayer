@@ -10,7 +10,7 @@
             android:id="@+id/thetext"
             android:layout_width="match_parent"
             android:layout_height="30dp"
-            android:layout_weight="0"
+            android:layout_weight="0.06"
             android:text="Podcast Player!"
     />
 
@@ -21,10 +21,44 @@
             android:layout_weight="1"
     />
 
-    <SeekBar
+
+    <LinearLayout
+            android:orientation="vertical"
             android:layout_width="match_parent"
-            android:layout_height="60dp"
-            android:layout_weight="0"
-            android:id="@+id/seekBar"/>
+            android:layout_height="wrap_content" android:layout_weight="0">
+        <SeekBar
+                android:layout_width="match_parent"
+                android:layout_height="60dp"
+                android:layout_weight="0"
+                android:id="@+id/seekBar"/>
+
+        <LinearLayout
+                android:orientation="horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_weight="0">
+
+            <Button
+                    android:text="&lt;30"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:id="@+id/back30"
+                    android:layout_weight="0"/>
+
+            <Space
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
+
+            <Button
+                    android:text="30&gt;"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:id="@+id/forward30"
+                    android:layout_weight="0"/>
+
+        </LinearLayout>
+    </LinearLayout>
+
 
 </LinearLayout>

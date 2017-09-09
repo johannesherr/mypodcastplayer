@@ -32,6 +32,11 @@ public class MainActivity extends AppCompatActivity {
 
         final SharedPreferences persist = getPreferences(Context.MODE_PRIVATE);
 
+        final Button back30 = (Button) findViewById(R.id.back30);
+        final Button forward30 = (Button) findViewById(R.id.forward30);
+        back30.setEnabled(false);
+        forward30.setEnabled(false);
+
         final TextView text = (TextView) findViewById(R.id.thetext);
         final SeekBar seekBar = (SeekBar) findViewById(R.id.seekBar);
         final int max = 100_000;
@@ -122,21 +127,28 @@ public class MainActivity extends AppCompatActivity {
 
                 try {
                     boolean changeSong = podcast != playing[0];
-                    playing[0] = podcast;
 
                     if (changeSong) {
+                        if (mediaPlayer.isPlaying()) {
+                            storePosition(playing[0], positions, persist, mediaPlayer.getCurrentPosition());
+                        }
                         playNew(podcast, positions.get(podcast), text, mediaPlayer, seekBar);
+                        playing[0] = podcast;
+                        back30.setEnabled(true);
+                        forward30.setEnabled(true);
 
                     } else if (mediaPlayer.isPlaying()) {
                         text.setText("pause: " + podcast.getName());
                         mediaPlayer.pause();
-                        int currentPosition = mediaPlayer.getCurrentPosition();
-                        positions.put(podcast, currentPosition);
-                        persist.edit().putInt(podcast.getName(), currentPosition).apply();
+                        storePosition(podcast, positions, persist, mediaPlayer.getCurrentPosition());
+                        back30.setEnabled(false);
+                        forward30.setEnabled(false);
 
                     } else if (!mediaPlayer.isPlaying()) {
                         text.setText("play: " + podcast.getName());
                         mediaPlayer.start();
+                        back30.setEnabled(true);
+                        forward30.setEnabled(true);
 
                     } else {
                         throw new AssertionError();
@@ -165,6 +177,24 @@ public class MainActivity extends AppCompatActivity {
             public void onStopTrackingTouch(SeekBar seekBar) {
             }
         });
+
+        back30.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                mediaPlayer.seekTo(Math.max(0, mediaPlayer.getCurrentPosition() - 30_000));
+            }
+        });
+        forward30.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                mediaPlayer.seekTo(Math.min(mediaPlayer.getDuration(), mediaPlayer.getCurrentPosition() + 30_000));
+            }
+        });
+    }
+
+    private void storePosition(File podcast, Map<File, Integer> positions, SharedPreferences persist, int currentPosition) {
+        positions.put(podcast, currentPosition);
+        persist.edit().putInt(podcast.getName(), currentPosition).apply();
     }
 
     private void playNew(File podcast, int startPos, TextView text, MediaPlayer mediaPlayer, SeekBar seekBar) throws IOException {
