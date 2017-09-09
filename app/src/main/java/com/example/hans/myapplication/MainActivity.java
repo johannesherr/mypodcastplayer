@@ -1,10 +1,13 @@
 package com.example.hans.myapplication;
 
 import android.annotation.SuppressLint;
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
 import android.support.v7.app.AppCompatActivity;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -14,23 +17,25 @@ import android.widget.*;
 import java.io.File;
 import java.io.IOException;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @SuppressLint("SetTextI18n")
 public class MainActivity extends AppCompatActivity {
+
+    public static final String CURRENT = "current";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-//        Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
-//        setSupportActionBar(toolbar);
 
+        final Handler handler = new Handler();
+
+        final SharedPreferences persist = getPreferences(Context.MODE_PRIVATE);
+
+        final TextView text = (TextView) findViewById(R.id.thetext);
         final SeekBar seekBar = (SeekBar) findViewById(R.id.seekBar);
         final int max = 100_000;
         seekBar.setMax(max);
-
 
         final List<File> podcasts = new LinkedList<>();
         File root = Environment.getExternalStorageDirectory();
@@ -39,7 +44,7 @@ public class MainActivity extends AppCompatActivity {
         while (!q.isEmpty()) {
             File n = q.remove(0);
             String name = n.getName();
-            if (name.endsWith(".mp3") && name.toLowerCase().contains("jocko")) {
+            if (name.endsWith(".mp3") && n.length() > 10_000_000) {
                 podcasts.add(n);
             }
             File[] children = n.listFiles();
@@ -48,48 +53,86 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
+        final Map<File, Integer> positions = new HashMap<>();
+        for (File podcast : podcasts) {
+            positions.put(podcast, persist.getInt(podcast.getName(), 0));
+        }
+
+        // currently playing is always on top
+        final String lastPlaying = persist.getString(CURRENT, "");
         Collections.sort(podcasts, new Comparator<File>() {
             @Override
             public int compare(File lhs, File rhs) {
-                return num(rhs) - num(lhs);
+                return Long.signum(num(rhs) - num(lhs));
             }
 
-            private int num(File lhs) {
-                Pattern nbr = Pattern.compile("\\d+");
-                Matcher matcher = nbr.matcher(lhs.getName());
-                if (matcher.find()) {
-                    return Integer.parseInt(matcher.group(0));
-                } else {
-                    return 0;
-                }
+            private long num(File lhs) {
+                if (lastPlaying.equals(lhs.getName())) return Long.MIN_VALUE;
+                return lhs.lastModified();
             }
         });
 
         List<String> names = new LinkedList<>();
-        for (File podcast : podcasts) names.add(podcast.getName());
+        for (File podcast : podcasts) names.add(String.format("%s (%sm)",
+                podcast.getName().replaceAll(".mp3$", ""),
+                positions.get(podcast) / 1000 / 60));
 
         final MediaPlayer mediaPlayer = MediaPlayer.create(this, Uri.fromFile(podcasts.get(0)));
+
+        Thread thread = new Thread() {
+            @Override
+            public void run() {
+                while (true) {
+                    handler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            int duration = mediaPlayer.getDuration();
+                            int currentPosition = mediaPlayer.getCurrentPosition();
+                            seekBar.setProgress((int) ((currentPosition / ((double) duration)) * max));
+
+                            String text1 = text.getText().toString();
+                            int idx = text1.lastIndexOf(" (");
+                            int secs = currentPosition / 1000;
+                            if (idx != -1) {
+                                text1 = text1.substring(0, idx);
+                            }
+                            text.setText(String.format("%s (%02d:%02d)", text1, secs / 60, secs % 60));
+                        }
+                    });
+
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
+            }
+        };
+        thread.start();
 
         final File[] playing = {null};
         ListView listView = (ListView) findViewById(R.id.pods);
         listView.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, names));
         listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
-            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+            public void onItemClick(AdapterView<?> parent, View view, int listViewPosition, long id) {
                 File podcast = podcasts.get((int) id);
 
-                TextView text = (TextView) findViewById(R.id.thetext);
+                persist.edit().putString(CURRENT, podcast.getName()).apply();
 
                 try {
                     boolean changeSong = podcast != playing[0];
                     playing[0] = podcast;
 
                     if (changeSong) {
-                        playNew(podcast, text, mediaPlayer, seekBar);
+                        playNew(podcast, positions.get(podcast), text, mediaPlayer, seekBar);
 
                     } else if (mediaPlayer.isPlaying()) {
                         text.setText("pause: " + podcast.getName());
                         mediaPlayer.pause();
+                        int currentPosition = mediaPlayer.getCurrentPosition();
+                        positions.put(podcast, currentPosition);
+                        persist.edit().putInt(podcast.getName(), currentPosition).apply();
 
                     } else if (!mediaPlayer.isPlaying()) {
                         text.setText("play: " + podcast.getName());
@@ -124,12 +167,13 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void playNew(File podcast, TextView text, MediaPlayer mediaPlayer, SeekBar seekBar) throws IOException {
+    private void playNew(File podcast, int startPos, TextView text, MediaPlayer mediaPlayer, SeekBar seekBar) throws IOException {
         mediaPlayer.stop();
         mediaPlayer.reset();
         mediaPlayer.setDataSource(MainActivity.this, Uri.fromFile(podcast));
         mediaPlayer.prepare();
         text.setText("playing: " + podcast.getName());
+        mediaPlayer.seekTo(startPos);
         mediaPlayer.start();
 
         seekBar.setProgress(0);
