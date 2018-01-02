@@ -1,22 +1,38 @@
 package com.example.hans.myapplication;
 
+import java.io.File;
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+
+import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
+import android.support.annotation.NonNull;
+import android.support.v4.app.ActivityCompat;
+import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
-import android.widget.*;
-
-import java.io.File;
-import java.io.IOException;
-import java.util.*;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
+import android.widget.Button;
+import android.widget.ListView;
+import android.widget.SeekBar;
+import android.widget.TextView;
 
 @SuppressLint("SetTextI18n")
 public class MainActivity extends AppCompatActivity {
@@ -25,10 +41,17 @@ public class MainActivity extends AppCompatActivity {
     private MediaPlayer mediaPlayer;
     private Thread thread;
     private boolean destroy;
+    private File podcast;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (fixPermissions()) {
+            load();
+        }
+    }
+
+    private void load() {
         setContentView(R.layout.activity_main);
 
         final Handler handler = new Handler();
@@ -36,6 +59,7 @@ public class MainActivity extends AppCompatActivity {
         final SharedPreferences persist = getPreferences(Context.MODE_PRIVATE);
 
         final Button back30 = (Button) findViewById(R.id.back30);
+        final Button playpause = (Button) findViewById(R.id.playpause);
         final Button forward30 = (Button) findViewById(R.id.forward30);
         back30.setEnabled(false);
         forward30.setEnabled(false);
@@ -44,6 +68,7 @@ public class MainActivity extends AppCompatActivity {
         final SeekBar seekBar = (SeekBar) findViewById(R.id.seekBar);
         final int max = 100_000;
         seekBar.setMax(max);
+
 
         final List<File> podcasts = new LinkedList<>();
         File root = Environment.getExternalStorageDirectory();
@@ -85,7 +110,8 @@ public class MainActivity extends AppCompatActivity {
                 podcast.getName().replaceAll(".mp3$", ""),
                 positions.get(podcast) / 1000 / 60));
 
-        mediaPlayer = MediaPlayer.create(this, Uri.fromFile(podcasts.get(0)));
+        this.podcast = podcasts.get(0);
+        mediaPlayer = MediaPlayer.create(this, Uri.fromFile(getPodcast()));
 
         thread = new Thread() {
             @Override
@@ -124,34 +150,27 @@ public class MainActivity extends AppCompatActivity {
         listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
             public void onItemClick(AdapterView<?> parent, View view, int listViewPosition, long id) {
-                File podcast = podcasts.get((int) id);
+                podcast = podcasts.get((int) id);
 
-                persist.edit().putString(CURRENT, podcast.getName()).apply();
+                persist.edit().putString(CURRENT, getPodcast().getName()).apply();
 
                 try {
-                    boolean changeSong = podcast != playing[0];
+                    boolean changeSong = getPodcast() != playing[0];
 
                     if (changeSong) {
                         if (mediaPlayer.isPlaying()) {
                             storePosition(playing[0], positions, persist, mediaPlayer.getCurrentPosition());
                         }
-                        playNew(podcast, positions.get(podcast), text, mediaPlayer, seekBar);
-                        playing[0] = podcast;
+                        playNew(getPodcast(), positions.get(getPodcast()), text, mediaPlayer, seekBar);
+                        playing[0] = getPodcast();
                         back30.setEnabled(true);
                         forward30.setEnabled(true);
 
                     } else if (mediaPlayer.isPlaying()) {
-                        text.setText("pause: " + podcast.getName());
-                        mediaPlayer.pause();
-                        storePosition(podcast, positions, persist, mediaPlayer.getCurrentPosition());
-                        back30.setEnabled(false);
-                        forward30.setEnabled(false);
+                        doPause(getPodcast(), text, positions, persist, back30, forward30);
 
                     } else if (!mediaPlayer.isPlaying()) {
-                        text.setText("play: " + podcast.getName());
-                        mediaPlayer.start();
-                        back30.setEnabled(true);
-                        forward30.setEnabled(true);
+                        doPlay(getPodcast(), text, back30, forward30);
 
                     } else {
                         throw new AssertionError();
@@ -165,7 +184,7 @@ public class MainActivity extends AppCompatActivity {
 
         seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
-            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+            public void onProgressChanged(SeekBar seekBar11, int progress, boolean fromUser) {
                 if (fromUser) {
                     int duration = mediaPlayer.getDuration();
                     double relPos = progress / ((double) max);
@@ -174,10 +193,10 @@ public class MainActivity extends AppCompatActivity {
             }
 
             @Override
-            public void onStartTrackingTouch(SeekBar seekBar) {
+            public void onStartTrackingTouch(SeekBar seekBar11) {
             }
             @Override
-            public void onStopTrackingTouch(SeekBar seekBar) {
+            public void onStopTrackingTouch(SeekBar seekBar11) {
             }
         });
 
@@ -187,12 +206,61 @@ public class MainActivity extends AppCompatActivity {
                 mediaPlayer.seekTo(Math.max(0, mediaPlayer.getCurrentPosition() - 30_000));
             }
         });
+        playpause.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (mediaPlayer.isPlaying()) {
+                    doPause(getPodcast(), text, positions, persist, back30, forward30);
+                } else {
+                    doPlay(getPodcast(), text, back30, forward30);
+                }
+            }
+        });
         forward30.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 mediaPlayer.seekTo(Math.min(mediaPlayer.getDuration(), mediaPlayer.getCurrentPosition() + 30_000));
             }
         });
+    }
+
+    private File getPodcast() {
+        return podcast;
+    }
+
+    private void doPlay(File podcast, TextView text, Button back30, Button forward30) {
+        text.setText("play: " + podcast.getName());
+        mediaPlayer.start();
+        back30.setEnabled(true);
+        forward30.setEnabled(true);
+    }
+
+    private void doPause(File podcast, TextView text, Map<File, Integer> positions, SharedPreferences persist, Button back30, Button forward30) {
+        text.setText("pause: " + podcast.getName());
+        mediaPlayer.pause();
+        storePosition(podcast, positions, persist, mediaPlayer.getCurrentPosition());
+        back30.setEnabled(false);
+        forward30.setEnabled(false);
+    }
+
+    private boolean fixPermissions() {
+        // Here, thisActivity is the current activity
+        String permission = Manifest.permission.READ_EXTERNAL_STORAGE;
+        if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+            // No explanation needed, we can request the permission.
+            ActivityCompat.requestPermissions(this, new String[]{permission}, 42);
+            return false;
+        } else {
+            return true;
+        }
+        
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            load();
+        }
     }
 
     @Override
